@@ -5,6 +5,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { getSessionUser } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 const features = [
   { icon: Repeat, title: "Any challenge", text: "Distance, pages, minutes, reps – or just done / not done. Daily, specific weekdays, a weekly total, or one big goal." },
   { icon: CalendarCheck, title: "Automatic schedule", text: "Your targets become a plan. Move, skip or add sessions; change future targets without touching your history." },

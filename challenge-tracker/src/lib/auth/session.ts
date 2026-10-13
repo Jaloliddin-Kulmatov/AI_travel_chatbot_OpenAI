@@ -17,7 +17,10 @@ export interface SessionUser {
 }
 
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
-  const session = await getAuth().api.getSession({ headers: await headers() });
+  // Read the request headers first: that opts the page into dynamic rendering, so nothing here
+  // (database, auth secret) is touched while `next build` pre-renders.
+  const requestHeaders = await headers();
+  const session = await getAuth().api.getSession({ headers: requestHeaders });
   if (!session) return null;
   const u = session.user as typeof session.user & { timezone?: string; isDemo?: boolean };
   return {
