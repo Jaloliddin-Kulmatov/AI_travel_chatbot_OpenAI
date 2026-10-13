@@ -1,14 +1,16 @@
 """Render a 15-second 9:16 "fun fact" short (octopus hearts) with Pillow + ffmpeg.
 
-Usage: python3 make_octopus_short.py [output.mp4]
-No external assets: visuals are drawn in code, audio is synthesized (ambient pad,
-heartbeat, pops). Swap in a voiceover by muxing it over the generated audio.
+Usage: PIPER_VOICE=/path/en_US-ryan-high.onnx python3 make_octopus_short.py [output.mp4]
+Visuals are drawn in code, music/sfx are synthesized (ambient pad, heartbeat, pops).
+If PIPER_VOICE points at a Piper voice model (pip install piper-tts), a narration
+is synthesized offline and mixed over the music; without it the short is music-only.
 """
 import math
 import os
 import random
 import struct
 import subprocess
+import tempfile
 import sys
 import wave
 
@@ -17,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 W, H, FPS, DUR = 1080, 1920, 30, 15.0
 SR = 44100
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "octopus_hearts_short.mp4")
+VOICE = os.environ.get("PIPER_VOICE")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 PINK, RED, CYAN, BLUE, WHITE = (255, 120, 160), (240, 50, 80), (110, 225, 255), (70, 165, 255), (255, 255, 255)
@@ -25,6 +28,15 @@ PINK, RED, CYAN, BLUE, WHITE = (255, 120, 160), (240, 50, 80), (110, 225, 255), 
 BEAT0, BEAT_PERIOD = 1.3, 0.8
 T_GILLS, T_BODY, T_BLUE, T_CTA = 3.4, 6.8, 10.0, 13.0
 HEART_END = 9.8
+
+# (start time, narration text, piper length-scale: lower = faster)
+NARRATION = [
+    (0.5, "Did you know? An octopus has three hearts!", 0.9),
+    (T_GILLS + 0.1, "Two pump blood to the gills.", 0.9),
+    (T_BODY + 0.1, "One pumps blood to the whole body.", 0.9),
+    (T_BLUE + 0.1, "And their blood is blue! Thanks to copper.", 0.9),
+    (T_CTA - 0.05, "Follow for more mind-blowing facts.", 0.82),
+]
 
 
 def clamp(x, a=0.0, b=1.0):
@@ -182,12 +194,31 @@ def synth_audio(path):
 
     add(T_BLUE - 0.1, 0.6, whoosh, 0.25)
 
+    mpeak = max(abs(v) for v in buf) or 1
+    buf = [v / mpeak * 0.3 for v in buf]  # keep music under the voice
+
+    if VOICE:
+        with tempfile.TemporaryDirectory() as tmp:
+            for k, (t0, text, ls) in enumerate(NARRATION):
+                raw, clean = os.path.join(tmp, f"r{k}.wav"), os.path.join(tmp, f"c{k}.wav")
+                subprocess.run([sys.executable, "-m", "piper", "-m", VOICE, "-f", raw, "--length-scale", str(ls)],
+                               input=text.encode(), check=True, capture_output=True)
+                trim = "silenceremove=start_periods=1:start_threshold=-50dB"
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw, "-af",
+                                f"{trim},areverse,{trim},areverse,loudnorm=I=-14", "-ar", str(SR), "-ac", "1", clean], check=True)
+                with wave.open(clean) as w:
+                    pcm = struct.unpack(f"<{w.getnframes()}h", w.readframes(w.getnframes()))
+                i0 = int(t0 * SR)
+                for i, v in enumerate(pcm):
+                    if i0 + i < n:
+                        buf[i0 + i] += v / 32768 * 0.8
+
     peak = max(abs(v) for v in buf) or 1
     with wave.open(path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(SR)
-        w.writeframes(b"".join(struct.pack("<h", int(clamp(v / peak * 0.9, -1, 1) * 32767)) for v in buf))
+        w.writeframes(b"".join(struct.pack("<h", int(clamp(v / max(peak, 1) * 0.9, -1, 1) * 32767)) for v in buf))
 
 
 # ---------- scene ----------
@@ -216,8 +247,7 @@ def render():
         "body": text_sprite("to the whole body", 100, RED),
         "their": text_sprite("And their blood", 96),
         "blue": text_sprite("is BLUE!", 170, BLUE),
-        "cu": text_sprite("It carries oxygen with copper", 58, CYAN),
-        "cu2": text_sprite("instead of iron", 58, CYAN),
+        "cu": text_sprite("Thanks to copper, not iron", 62, CYAN),
         "follow": text_sprite("Follow for more", 110),
         "facts": text_sprite("mind-blowing facts", 100, CYAN),
     }
@@ -287,8 +317,7 @@ def render():
             pop_in(c, "their", t, T_BLUE + 0.15, W // 2, 1170, t_out=T_CTA - 0.2)
             pop_in(c, "blue", t, T_BLUE + 0.45, W // 2, 1350, t_out=T_CTA - 0.2)
             pop_in(c, "cu", t, T_BLUE + 1.0, W // 2, 1510, t_out=T_CTA - 0.2)
-            pop_in(c, "cu2", t, T_BLUE + 1.15, W // 2, 1580, t_out=T_CTA - 0.2)
-
+    
         # CTA
         if t >= T_CTA:
             ring = (t - T_CTA) * 1.2
