@@ -257,7 +257,7 @@ def render():
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS),
          "-i", "-", "-i", audio, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium",
-         "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", OUT],
+         "-c:a", "aac", "-ac", "2", "-b:a", "192k", "-shortest", "-movflags", "+faststart", OUT],
         stdin=subprocess.PIPE,
     )
 
